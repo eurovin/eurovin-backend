@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel
 from database import get_db
 from models import Vehicle, Issue
+import re
 import os
 
 app = FastAPI(title="EuroVin API", version="1.0.0")
@@ -53,14 +54,12 @@ def get_issues(
     db: Session = Depends(get_db)
 ):
     # Find the best matching vehicle
-    # First try exact brand + model match, then find the generation whose year range contains the target year
     vehicles = db.query(Vehicle).filter(
         func.lower(Vehicle.brand) == func.lower(brand),
         func.lower(Vehicle.model) == func.lower(model)
     ).all()
 
     if not vehicles:
-        # Try partial model match
         vehicles = db.query(Vehicle).filter(
             func.lower(Vehicle.brand) == func.lower(brand),
             func.lower(Vehicle.model).contains(func.lower(model))
@@ -72,11 +71,12 @@ def get_issues(
             detail=f"No data found for {brand} {model}. Check back as we expand our database."
         )
 
-    # Pick the vehicle whose year range best matches the requested year
+    # Pick the vehicle generation whose year range best matches
     best_vehicle = _best_match(vehicles, year)
 
-    # Fetch all issues for this vehicle
-    issues = db.query(Issue).filter(Issue.vehicle_id == best_vehicle.id).all()
+    # Fetch all issues then filter by affected_years
+    all_issues = db.query(Issue).filter(Issue.vehicle_id == best_vehicle.id).all()
+    issues = [i for i in all_issues if _issue_applies(i.affected_years, year)]
 
     return IssuesResponse(
         brand=best_vehicle.brand,
@@ -111,5 +111,51 @@ def _best_match(vehicles: list, year: int) -> Vehicle:
                 return v
         except Exception:
             continue
-    # Fallback: return the most recent generation
     return vehicles[-1]
+
+def _issue_applies(affected_years: str, year: int) -> bool:
+    """
+    Returns True if the vehicle year falls within the issue's affected_years range.
+    Handles formats like:
+      "2005-2009"
+      "2012-present"
+      "All years"
+      "2012-2016, 2018-2020"   (multiple ranges)
+      "2005-2009 (preventive); 2010-2015 (if engine damaged)"  (notes after semicolon)
+    """
+    if not affected_years:
+        return True
+
+    text = affected_years.lower()
+
+    # "all years" or "all models" — always applies
+    if "all" in text:
+        return True
+
+    # Strip parenthetical notes and semicolon clauses — keep only year numbers
+    # e.g. "$300-$800 (preventive); $3,000+ (damage)" — these are cost fields, not year fields
+    # For affected_years we strip everything after first semicolon or parenthesis
+    text = re.split(r'[;(]', text)[0]
+
+    # Replace "present" with current year
+    text = text.replace("present", "2026")
+
+    # Extract all year-like numbers (4-digit, 1990-2030 range)
+    years_found = [int(y) for y in re.findall(r'\b(19[0-9]{2}|20[0-3][0-9])\b', text)]
+
+    if not years_found:
+        return True  # can't parse → show the issue
+
+    # If only one year found, treat as exact match
+    if len(years_found) == 1:
+        return year == years_found[0]
+
+    # Multiple years — treat as start/end of range(s)
+    # Walk through pairs
+    for i in range(0, len(years_found) - 1, 2):
+        start = years_found[i]
+        end   = years_found[i + 1]
+        if start <= year <= end:
+            return True
+
+    return False
