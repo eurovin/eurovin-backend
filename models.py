@@ -14,12 +14,12 @@ class Vehicle(Base):
 
 class Issue(Base):
     __tablename__ = "issues"
-    id                   = Column(Integer, primary_key=True, index=True)
-    vehicle_id           = Column(Integer, ForeignKey("vehicles.id"))
-    system               = Column(String(50), index=True)
-    title                = Column(String(200))
-    description          = Column(Text)
-    severity             = Column(String(20))
-    affected_years       = Column(String(50))
-    estimated_repair_cost = Column(String(100))
-    vehicle              = relationship("Vehicle", back_populates="issues")
+    id                    = Column(Integer, primary_key=True, index=True)
+    vehicle_id            = Column(Integer, ForeignKey("vehicles.id"))
+    system                = Column(String(50), index=True)
+    title                 = Column(String(500))
+    description           = Column(Text)
+    severity              = Column(String(20))
+    affected_years        = Column(String(100))
+    estimated_repair_cost = Column(String(500))
+    vehicle               = relationship("Vehicle", back_populates="issues")
