@@ -2,7 +2,8 @@ from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from typing import Optional
 from database import get_db
 from models import Vehicle, Issue
 import re
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 
 class IssueOut(BaseModel):
+    model_config = {"from_attributes": True}
     id: int
     system: str
     title: str
@@ -24,10 +26,18 @@ class IssueOut(BaseModel):
     severity: str
     affected_years: str
     estimated_repair_cost: str
-    prevalence: str = "COMMON"
-    risk_factors: str = ""
-    class Config:
-        from_attributes = True
+    prevalence: Optional[str] = "COMMON"
+    risk_factors: Optional[str] = ""
+
+    @field_validator("prevalence", mode="before")
+    @classmethod
+    def default_prevalence(cls, v):
+        return v or "COMMON"
+
+    @field_validator("risk_factors", mode="before")
+    @classmethod
+    def default_risk_factors(cls, v):
+        return v or ""
 
 class IssuesResponse(BaseModel):
     brand: str
