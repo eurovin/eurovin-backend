@@ -126,3 +126,13 @@ def _issue_applies(affected_years: str, year: int) -> bool:
         if years_found[i] <= year <= years_found[i + 1]:
             return True
     return False
+
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "trace": traceback.format_exc()}
+    )
