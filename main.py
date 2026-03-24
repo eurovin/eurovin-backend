@@ -2,12 +2,10 @@ from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
 from pydantic import BaseModel
 from database import get_db
 from models import Vehicle, Issue
 import re
-import os
 
 app = FastAPI(title="EuroVin API", version="1.0.0")
 
@@ -26,6 +24,8 @@ class IssueOut(BaseModel):
     severity: str
     affected_years: str
     estimated_repair_cost: str
+    prevalence: str = "COMMON"
+    risk_factors: str = ""
     class Config:
         from_attributes = True
 
@@ -67,9 +67,13 @@ def get_issues(
     all_issues = db.query(Issue).filter(Issue.vehicle_id == best_vehicle.id).all()
     issues = [i for i in all_issues if _issue_applies(i.affected_years, year)]
 
-    return IssuesResponse(brand=best_vehicle.brand, model=best_vehicle.model,
-                          year=year, engine=engine,
-                          issues=[IssueOut.model_validate(i) for i in issues])
+    return IssuesResponse(
+        brand=best_vehicle.brand,
+        model=best_vehicle.model,
+        year=year,
+        engine=engine,
+        issues=[IssueOut.model_validate(i) for i in issues]
+    )
 
 @app.get("/brands")
 def get_brands(db: Session = Depends(get_db)):
