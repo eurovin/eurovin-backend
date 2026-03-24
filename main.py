@@ -136,3 +136,44 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={"error": str(exc), "trace": traceback.format_exc()}
     )
+
+@app.post("/admin/rebalance")
+def rebalance_issues(db: Session = Depends(get_db)):
+    import re
+
+    CRITICAL_PATTERNS = [r"rod bearing",r"spun bearing",r"fire risk",r"fuel leak",r"brake fail",r"airbag.*fail",r"engine seiz",r"head gasket.*blown",r"timing.*snap",r"catastrophic",r"throttle.*stuck",r"turbo.*seiz",r"subframe.*crack",r"power steering.*fail"]
+    HIGH_PATTERNS = [r"timing chain",r"injector fail",r"turbo.*bearing",r"egr.*fail",r"dpf.*block",r"dual.mass flywheel",r"dmf",r"dsg.*fail",r"water pump.*fail",r"oil pump.*fail",r"bore score",r"ims.*bearing",r"fuel pump.*fail",r"hpfp",r"wheel bearing.*fail",r"air suspension.*fail",r"swirl flap",r"carbon build",r"vanos.*fail",r"n47",r"cam.*wear"]
+    LOW_PATTERNS = [r"cosmetic",r"trim.*rattle",r"interior.*rattle",r"rubber seal",r"door seal",r"paint.*fade",r"chrome.*peel",r"bluetooth",r"usb port",r"speaker.*blown",r"cup holder",r"armrest"]
+    WIDESPREAD_PATTERNS = [r"recall",r"nhtsa",r"all examples",r"takata",r"inherent design flaw",r"affects all",r"swirl flap",r"carbon build.*direct injection"]
+    RARE_PATTERNS = [r"rare",r"uncommon",r"infrequent",r"isolated case",r"few reports",r"seldom",r"very few"]
+    SELECTIVE_PATTERNS = [r"track use",r"aggressive driving",r"modified",r"tuned",r"only affects",r"early build",r"bore score",r"rod bearing",r"ims bearing",r"condition.?dependent",r"if neglected",r"towing"]
+
+    def match(text, patterns):
+        return any(re.search(p, text) for p in patterns)
+
+    issues = db.query(Issue).all()
+    counts = {"CRITICAL":0,"HIGH":0,"MEDIUM":0,"LOW":0}
+    prev = {"WIDESPREAD":0,"COMMON":0,"SELECTIVE":0,"RARE":0}
+
+    for issue in issues:
+        c = (issue.title + " " + (issue.description or "")).lower()
+        if match(c, CRITICAL_PATTERNS): sev = "CRITICAL"
+        elif match(c, HIGH_PATTERNS): sev = "HIGH"
+        elif match(c, LOW_PATTERNS): sev = "LOW"
+        elif issue.severity == "CRITICAL": sev = "HIGH"
+        elif issue.severity == "HIGH": sev = "MEDIUM"
+        else: sev = issue.severity
+
+        if match(c, WIDESPREAD_PATTERNS): pr = "WIDESPREAD"
+        elif match(c, RARE_PATTERNS): pr = "RARE"
+        elif match(c, SELECTIVE_PATTERNS): pr = "SELECTIVE"
+        elif sev in ("CRITICAL","HIGH"): pr = "SELECTIVE"
+        else: pr = "COMMON"
+
+        issue.severity = sev
+        issue.prevalence = pr
+        counts[sev] += 1
+        prev[pr] += 1
+
+    db.commit()
+    return {"updated": len(issues), "severity": counts, "prevalence": prev}
